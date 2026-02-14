@@ -49,7 +49,7 @@ def build_tools() -> list:
 
 
 async def build_agent(
-    mcp_client: MultiServerMCPClient,
+    mcp_client: MultiServerMCPClient | None,
     checkpointer: AsyncPostgresSaver,
     store: AsyncPostgresStore,
 ) -> tuple[Any, list, int]:
@@ -58,7 +58,7 @@ async def build_agent(
     Returns:
         Tuple of (agent, all_tools, mcp_tool_count)
     """
-    mcp_tools = await mcp_client.get_tools()
+    mcp_tools = await mcp_client.get_tools() if mcp_client else []
     base_tools = build_tools()
     all_tools = mcp_tools + base_tools
     mcp_tool_count = len(mcp_tools)

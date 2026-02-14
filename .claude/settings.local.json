@@ -1,8 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "mcp__plugin_context7_context7__query-docs",
-      "Bash(uv run python:*)"
+      "Bash(uv run python:*)",
+      "mcp__notion__notion-update-page",
+      "mcp__notion__notion-fetch",
+      "WebFetch(domain:docs.langchain.com)"
     ]
   }
 }

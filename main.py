@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from src.agent import build_agent, create_agent_resources, get_thread_history, stream_agent_turn
 from src.config import DATABASE_URL, MAX_CONTEXT_TOKENS, load_mcp_servers, validate_config
+
+logger = logging.getLogger(__name__)
 from src.context_tracker import ContextBreakdown, build_context_breakdown
 from src.memory import retrieve_memories
 from src.ui import (
@@ -164,48 +167,47 @@ async def main() -> None:
         await checkpointer.setup()
         await store.setup()
 
-        # Start MCP client
-        mcp_client = MultiServerMCPClient(mcp_config) if mcp_config else None
+        # Initialize MCP client (stateless — each tool call manages its own session)
+        mcp_client = None
+        if mcp_config:
+            try:
+                mcp_client = MultiServerMCPClient(mcp_config)
+                server_names = list(mcp_config.keys())
+                logger.info("MCP client initialized with servers: %s", server_names)
+                show_info(f"MCP servers: {', '.join(server_names)}")
+            except Exception as e:
+                logger.warning("Failed to initialize MCP client: %s", e)
+                show_error(f"MCP initialization failed: {e}. Continuing without MCP tools.")
 
-        async def run_with_mcp(client):
-            agent, all_tools, mcp_tool_count = await build_agent(
-                client, checkpointer, store
+        # Build agent with available tools
+        agent, all_tools, mcp_tool_count = await build_agent(
+            mcp_client, checkpointer, store
+        )
+
+        # Thread management
+        thread_id = str(uuid.uuid4())
+
+        # Offer to resume existing threads
+        threads = await get_thread_history(checkpointer)
+        if threads:
+            selected = prompt_thread_selection(threads)
+            if selected:
+                thread_id = selected
+
+        # Main loop with thread switching
+        while True:
+            result = await chat_loop(
+                agent, store, checkpointer, all_tools, mcp_tool_count, thread_id
             )
 
-            # Thread management
-            thread_id = str(uuid.uuid4())
-
-            # Offer to resume existing threads
-            threads = await get_thread_history(checkpointer)
-            if threads:
-                selected = prompt_thread_selection(threads)
-                if selected:
-                    thread_id = selected
-
-            # Main loop with thread switching
-            while True:
-                result = await chat_loop(
-                    agent, store, checkpointer, all_tools, mcp_tool_count, thread_id
-                )
-
-                if result is None:
-                    break
-                elif result == "NEW":
-                    thread_id = str(uuid.uuid4())
-                    show_info(f"New thread: {thread_id}")
-                elif result.startswith("RESUME:"):
-                    thread_id = result[7:]
-                    show_info(f"Resumed thread: {thread_id}")
-
-        if mcp_client:
-            await run_with_mcp(mcp_client)
-        else:
-            # Create a dummy client that returns no tools
-            class NoMCPClient:
-                async def get_tools(self):
-                    return []
-
-            await run_with_mcp(NoMCPClient())
+            if result is None:
+                break
+            elif result == "NEW":
+                thread_id = str(uuid.uuid4())
+                show_info(f"New thread: {thread_id}")
+            elif result.startswith("RESUME:"):
+                thread_id = result[7:]
+                show_info(f"Resumed thread: {thread_id}")
 
     console.print("[dim]Goodbye![/]")
 
