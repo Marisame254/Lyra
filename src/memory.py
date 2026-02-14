@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage, HumanMessage
+import logging
+
 from langchain_ollama import ChatOllama
 from langgraph.store.base import BaseStore
+
+logger = logging.getLogger(__name__)
 
 MEMORY_NAMESPACE = ("memories",)
 
@@ -75,6 +78,7 @@ async def retrieve_memories(
         )
         return [item.value["text"] for item in results if "text" in item.value]
     except Exception:
+        logger.debug("Memory search with query failed, trying without query", exc_info=True)
         # If search fails (e.g., no embeddings configured), try without query
         try:
             results = await store.asearch(
@@ -83,6 +87,7 @@ async def retrieve_memories(
             )
             return [item.value["text"] for item in results if "text" in item.value]
         except Exception:
+            logger.debug("Memory retrieval fallback failed", exc_info=True)
             return []
 
 

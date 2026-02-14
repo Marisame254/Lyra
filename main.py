@@ -9,10 +9,8 @@ import uuid
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from src.agent import build_agent, create_agent_resources, get_thread_history, stream_agent_turn
-from src.config import DATABASE_URL, MAX_CONTEXT_TOKENS, load_mcp_servers, validate_config
-
-logger = logging.getLogger(__name__)
-from src.context_tracker import ContextBreakdown, build_context_breakdown
+from src.config import MAX_CONTEXT_TOKENS, load_mcp_servers, setup_logging, validate_config
+from src.context_tracker import build_context_breakdown
 from src.memory import retrieve_memories
 from src.ui import (
     console,
@@ -26,6 +24,9 @@ from src.ui import (
     show_tool_start,
     show_welcome,
 )
+
+setup_logging()
+logger = logging.getLogger(__name__)
 
 
 async def handle_context_command(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,12 +21,15 @@ from src.config import (
     MODEL_NAME,
     TAVILY_API_KEY,
 )
+
 from src.memory import (
     extract_memories,
     format_memories_for_prompt,
     retrieve_memories,
     store_memories,
 )
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are a helpful AI assistant with access to various tools. \
 Use the tools available to you to help the user with their requests. \
@@ -62,6 +66,13 @@ async def build_agent(
     base_tools = build_tools()
     all_tools = mcp_tools + base_tools
     mcp_tool_count = len(mcp_tools)
+
+    logger.info(
+        "Building agent: %d MCP tools, %d base tools, model=%s",
+        mcp_tool_count,
+        len(base_tools),
+        MODEL_NAME,
+    )
 
     llm = ChatOllama(model=MODEL_NAME)
 
@@ -129,7 +140,9 @@ async def stream_agent_turn(
             tool_input = str(event.get("data", {}).get("input", ""))
             if len(tool_input) > 100:
                 tool_input = tool_input[:100] + "..."
-            yield AgentEvent(kind="tool_start", tool_name=tool_name, tool_input=tool_input)
+            yield AgentEvent(
+                kind="tool_start", tool_name=tool_name, tool_input=tool_input
+            )
 
         elif kind == "on_tool_end":
             tool_name = event.get("name", "unknown")
@@ -152,8 +165,11 @@ async def stream_agent_turn(
             new_memories = await extract_memories(llm, user_message, response_text)
             if new_memories:
                 await store_memories(store, user_id, new_memories)
+                logger.info(
+                    "Stored %d new memories for user=%s", len(new_memories), user_id
+                )
         except Exception:
-            pass
+            logger.debug("Memory extraction failed", exc_info=True)
 
 
 async def get_thread_history(
@@ -163,7 +179,9 @@ async def get_thread_history(
     threads = []
     try:
         async for checkpoint_tuple in checkpointer.alist(None, limit=50):
-            thread_id = checkpoint_tuple.config.get("configurable", {}).get("thread_id", "")
+            thread_id = checkpoint_tuple.config.get("configurable", {}).get(
+                "thread_id", ""
+            )
             if thread_id and thread_id not in [t["thread_id"] for t in threads]:
                 # Try to get the first message as a preview
                 checkpoint = checkpoint_tuple.checkpoint
@@ -172,9 +190,13 @@ async def get_thread_history(
                 messages = channel_values.get("messages", [])
                 if messages and len(messages) > 0:
                     first_msg = messages[0]
-                    content = first_msg.content if hasattr(first_msg, "content") else str(first_msg)
+                    content = (
+                        first_msg.content
+                        if hasattr(first_msg, "content")
+                        else str(first_msg)
+                    )
                     preview = content[:80] + "..." if len(content) > 80 else content
                 threads.append({"thread_id": thread_id, "preview": preview})
     except Exception:
-        pass
+        logger.debug("Failed to list thread history", exc_info=True)
     return threads
