@@ -285,18 +285,19 @@ async def get_thread_history(
                 preview = ""
                 channel_values = checkpoint.get("channel_values", {})
                 messages = channel_values.get("messages", [])
-                if messages and len(messages) > 0:
-                    first_msg = messages[0]
-                    content = (
-                        first_msg.content
-                        if hasattr(first_msg, "content")
-                        else str(first_msg)
-                    )
-                    preview = (
-                        content[:THREAD_PREVIEW_LIMIT] + "..."
-                        if len(content) > THREAD_PREVIEW_LIMIT
-                        else content
-                    )
+                for msg in messages:
+                    if getattr(msg, "type", None) == "human":
+                        content = (
+                            msg.content
+                            if isinstance(msg.content, str)
+                            else str(msg.content)
+                        )
+                        preview = (
+                            content[:THREAD_PREVIEW_LIMIT] + "..."
+                            if len(content) > THREAD_PREVIEW_LIMIT
+                            else content
+                        )
+                        break
                 threads.append({"thread_id": thread_id, "preview": preview})
     except Exception:
         logger.debug("Failed to list thread history", exc_info=True)

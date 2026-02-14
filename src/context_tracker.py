@@ -13,16 +13,24 @@ from src.constants import (
     MESSAGE_TOKEN_OVERHEAD,
 )
 
+try:
+    import tiktoken
+    _encoding = tiktoken.get_encoding("cl100k_base")
+except Exception:
+    _encoding = None
+
 
 def count_tokens(text: str) -> int:
-    """Approximate token count using a characters-per-token heuristic.
+    """Count tokens using tiktoken (cl100k_base) with heuristic fallback.
 
     Args:
-        text: The input string to estimate tokens for.
+        text: The input string to count tokens for.
 
     Returns:
-        Estimated token count (minimum 1).
+        Token count (minimum 1).
     """
+    if _encoding is not None:
+        return max(1, len(_encoding.encode(text)))
     return max(1, len(text) // CHARS_PER_TOKEN)
 
 
