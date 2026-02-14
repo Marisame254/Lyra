@@ -28,6 +28,8 @@ from src.constants import (
     KEEP_MESSAGES,
     TAVILY_MAX_RESULTS,
     THREAD_LIST_LIMIT,
+    THREAD_NAME_PROMPT,
+    THREAD_NAMES_NAMESPACE,
     THREAD_PREVIEW_LIMIT,
     TOOL_INPUT_DISPLAY_LIMIT,
     TOOL_OUTPUT_DISPLAY_LIMIT,
@@ -50,9 +52,28 @@ Current date and time: {current_time}"""
 
 
 def get_system_prompt() -> str:
-    """Build the system prompt with the current date and time injected."""
+    """Build the base system prompt with the current date and time injected."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     return _SYSTEM_PROMPT_TEMPLATE.format(current_time=now)
+
+
+def build_system_prompt(memories: list[str] | None = None) -> str:
+    """Build the full system prompt, optionally including user memories.
+
+    Combines the base system prompt with formatted memories into a single
+    unified prompt, avoiding multiple SystemMessage injections.
+
+    Args:
+        memories: Optional list of memory text strings to include.
+
+    Returns:
+        The complete system prompt string.
+    """
+    base = get_system_prompt()
+    memory_block = format_memories_for_prompt(memories or [])
+    if not memory_block:
+        return base
+    return f"{base}\n\nYou remember the following about this user:\n{memory_block}"
 
 
 async def create_agent_resources() -> tuple[AsyncPostgresSaver, AsyncPostgresStore]:
@@ -106,7 +127,6 @@ async def build_agent(
     agent = create_agent(
         model=llm,
         tools=all_tools,
-        system_prompt=get_system_prompt(),
         middleware=[
             SummarizationMiddleware(
                 model=llm,
@@ -140,6 +160,9 @@ async def _retrieve_and_build_messages(
 ) -> list[SystemMessage | HumanMessage]:
     """Retrieve memories and build the message list for a single turn.
 
+    Builds a single unified SystemMessage containing the base system prompt
+    plus any retrieved memories, followed by the user's HumanMessage.
+
     Args:
         store: The backing store for memory retrieval.
         user_message: The user's current input.
@@ -149,13 +172,12 @@ async def _retrieve_and_build_messages(
         List of messages to send to the agent.
     """
     memories = await retrieve_memories(store, user_id, user_message)
-    memory_section = format_memories_for_prompt(memories)
+    system_prompt = build_system_prompt(memories)
 
-    messages: list[SystemMessage | HumanMessage] = []
-    if memory_section:
-        messages.append(SystemMessage(content=memory_section))
-    messages.append(HumanMessage(content=user_message))
-    return messages
+    return [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_message),
+    ]
 
 
 async def _extract_and_store_memories(
@@ -263,16 +285,74 @@ async def stream_agent_turn(
         await _extract_and_store_memories(store, user_message, response_text, user_id)
 
 
+async def generate_thread_name(llm: ChatOllama, first_message: str) -> str:
+    """Generate a short readable name for a thread using the LLM.
+
+    Args:
+        llm: The ChatOllama instance.
+        first_message: The user's first message in the thread.
+
+    Returns:
+        A short name (roughly 5 words), or a truncated fallback on failure.
+    """
+    try:
+        prompt = THREAD_NAME_PROMPT.format(message=first_message)
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        name = response.content.strip().strip(".")
+        if name:
+            return name[:80]
+    except Exception:
+        logger.debug("Thread name generation failed", exc_info=True)
+    # Fallback: truncate the first message
+    return (first_message[:50] + "...") if len(first_message) > 50 else first_message
+
+
+async def save_thread_name(
+    store: AsyncPostgresStore, thread_id: str, name: str
+) -> None:
+    """Save a thread name to the store.
+
+    Args:
+        store: The Postgres-backed store.
+        thread_id: The thread identifier.
+        name: The readable name to save.
+    """
+    await store.aput(THREAD_NAMES_NAMESPACE, thread_id, {"name": name})
+
+
+async def get_thread_name(
+    store: AsyncPostgresStore, thread_id: str
+) -> str | None:
+    """Retrieve a thread name from the store.
+
+    Args:
+        store: The Postgres-backed store.
+        thread_id: The thread identifier.
+
+    Returns:
+        The stored name, or None if not found.
+    """
+    try:
+        item = await store.aget(THREAD_NAMES_NAMESPACE, thread_id)
+        if item and item.value:
+            return item.value.get("name")
+    except Exception:
+        logger.debug("Failed to get thread name for %s", thread_id, exc_info=True)
+    return None
+
+
 async def get_thread_history(
     checkpointer: AsyncPostgresSaver,
+    store: AsyncPostgresStore | None = None,
 ) -> list[dict]:
     """List existing conversation threads from the checkpoint store.
 
     Args:
         checkpointer: The Postgres checkpointer to query.
+        store: Optional Postgres store to look up thread names.
 
     Returns:
-        List of dicts with ``thread_id`` and ``preview`` keys.
+        List of dicts with ``thread_id``, ``preview``, and ``name`` keys.
     """
     threads: list[dict] = []
     try:
@@ -298,7 +378,16 @@ async def get_thread_history(
                             else content
                         )
                         break
-                threads.append({"thread_id": thread_id, "preview": preview})
+
+                name = None
+                if store:
+                    name = await get_thread_name(store, thread_id)
+
+                threads.append({
+                    "thread_id": thread_id,
+                    "preview": preview,
+                    "name": name or preview,
+                })
     except Exception:
         logger.debug("Failed to list thread history", exc_info=True)
     return threads

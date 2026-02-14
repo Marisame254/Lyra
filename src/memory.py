@@ -168,15 +168,14 @@ async def clear_memories(
 
 
 def format_memories_for_prompt(memories: list[str]) -> str:
-    """Format retrieved memories into a system prompt section.
+    """Format retrieved memories into a plain bullet list.
 
     Args:
         memories: List of memory text strings.
 
     Returns:
-        Formatted string to inject into the system prompt, or empty string.
+        Bullet-list string of memories, or empty string if none.
     """
     if not memories:
         return ""
-    memory_lines = "\n".join(f"- {m}" for m in memories)
-    return f"\n\nYou remember the following about this user:\n{memory_lines}\n"
+    return "\n".join(f"- {m}" for m in memories)

@@ -43,6 +43,14 @@ MEMORY_MAX_RESULTS: int = 5
 # Memory store
 MEMORY_NAMESPACE: tuple[str, ...] = ("memories",)
 
+# Thread names
+THREAD_NAMES_NAMESPACE: tuple[str, ...] = ("thread_names",)
+THREAD_NAME_PROMPT: str = (
+    "Resume en máximo 5 palabras de qué trata este mensaje. "
+    "Responde SOLO con el resumen, sin puntuación final ni explicación.\n\n"
+    "Mensaje: {message}"
+)
+
 # Context usage thresholds (percentage)
 CONTEXT_USAGE_WARNING_PCT: int = 50
 CONTEXT_USAGE_DANGER_PCT: int = 80

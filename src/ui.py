@@ -92,11 +92,13 @@ def show_threads(threads: list[dict]) -> None:
 
     table = Table(title="Conversation Threads", border_style="bright_blue")
     table.add_column("#", style="bold", width=4)
-    table.add_column("Thread ID", style="cyan", width=38)
-    table.add_column("Preview", style="dim")
+    table.add_column("ID", style="cyan", width=10)
+    table.add_column("Name", style="white")
 
     for i, thread in enumerate(threads, 1):
-        table.add_row(str(i), thread["thread_id"], thread.get("preview", ""))
+        short_id = thread["thread_id"][:8]
+        name = thread.get("name") or thread.get("preview", "")
+        table.add_row(str(i), short_id, name)
 
     console.print(table)
     console.print()

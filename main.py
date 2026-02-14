@@ -12,8 +12,10 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from rich.live import Live
 from rich.markdown import Markdown
 
-from src.agent import build_agent, create_agent_resources, get_system_prompt, get_thread_history, get_thread_messages, stream_agent_turn
-from src.config import MAX_CONTEXT_TOKENS, load_mcp_servers, setup_logging, validate_config
+from langchain_ollama import ChatOllama
+
+from src.agent import build_agent, create_agent_resources, generate_thread_name, get_system_prompt, get_thread_history, get_thread_messages, get_thread_name, save_thread_name, stream_agent_turn
+from src.config import MAX_CONTEXT_TOKENS, MODEL_NAME, load_mcp_servers, setup_logging, validate_config
 from src.constants import AgentEventKind, ChatCommand
 from src.context_tracker import build_context_breakdown
 from src.memory import clear_memories, delete_memory, list_memories, retrieve_memories, store_memories
@@ -90,6 +92,7 @@ async def chat_loop(
     """
     session = create_prompt_session()
     messages: list[HumanMessage | AIMessage] = []
+    is_new_thread = not resumed
 
     show_info(f"Thread: {thread_id}")
 
@@ -124,7 +127,7 @@ async def chat_loop(
             return ChatLoopResult(command=ChatCommand.NEW)
 
         if user_input.lower() == "/threads":
-            threads = await get_thread_history(checkpointer)
+            threads = await get_thread_history(checkpointer, store)
             selected = prompt_thread_selection(threads)
             if selected:
                 return ChatLoopResult(command=ChatCommand.NEW, thread_id=selected)
@@ -263,6 +266,17 @@ async def chat_loop(
                     console.print()
                 messages.append(HumanMessage(content=user_input))
                 messages.append(AIMessage(content=response_text))
+
+                # Generate a readable name for new threads after the first response
+                if is_new_thread:
+                    is_new_thread = False
+                    try:
+                        llm = ChatOllama(model=MODEL_NAME)
+                        name = await generate_thread_name(llm, user_input)
+                        await save_thread_name(store, thread_id, name)
+                        show_info(f"Thread: {name}")
+                    except Exception:
+                        logger.debug("Failed to save thread name", exc_info=True)
             else:
                 show_error("No response from agent.")
         except Exception as e:
@@ -311,7 +325,7 @@ async def main() -> None:
         thread_id = str(uuid.uuid4())
         is_resumed = False
 
-        threads = await get_thread_history(checkpointer)
+        threads = await get_thread_history(checkpointer, store)
         if threads:
             selected = prompt_thread_selection(threads)
             if selected:
@@ -329,7 +343,9 @@ async def main() -> None:
             elif result.thread_id:
                 thread_id = result.thread_id
                 is_resumed = True
-                show_info(f"Resumed thread: {thread_id}")
+                name = await get_thread_name(store, thread_id)
+                label = name or thread_id[:8]
+                show_info(f"Resumed thread: {label}")
             elif result.command == ChatCommand.NEW:
                 thread_id = str(uuid.uuid4())
                 is_resumed = False
