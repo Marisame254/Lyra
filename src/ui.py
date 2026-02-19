@@ -21,7 +21,7 @@ COMMANDS = {
     "/threads": "List and resume previous conversations",
     "/context": "Show token usage breakdown",
     "/memory": "Manage long-term memories",
-    "/model [nombre]": "Show or change the active Ollama model",
+    "/model [proveedor/nombre]": "Show available models or switch provider",
     "/help": "Show this help message",
     "/exit": "Exit the application",
 }
@@ -267,16 +267,28 @@ def prompt_reject_reason() -> str:
         return ""
 
 
-def show_models_table(models: list[str], current_model: str) -> None:
-    """Display available Ollama models with the active one highlighted."""
-    table = Table(title="Modelos disponibles en Ollama", border_style="bright_blue")
+def show_models_table(models_by_provider: dict[str, list[str]], current_model: str) -> None:
+    """Display available models grouped by provider with the active one highlighted.
+
+    Args:
+        models_by_provider: Mapping of provider name to list of model names.
+        current_model: Active model string in ``provider/name`` or bare format.
+    """
+    table = Table(title="Modelos disponibles", border_style="bright_blue")
+    table.add_column("Proveedor", style="cyan", width=12)
     table.add_column("Modelo", style="white")
     table.add_column("Activo", justify="center", width=8)
-    for model in models:
-        active = "[bold green]✓[/]" if model == current_model else ""
-        table.add_row(model, active)
+
+    for provider, models in models_by_provider.items():
+        for model in models:
+            full_name = f"{provider}/{model}"
+            # Match both "provider/name" and bare "name" (Ollama backward compat)
+            is_active = current_model in (full_name, model)
+            active = "[bold green]✓[/]" if is_active else ""
+            table.add_row(provider, model, active)
+
     console.print(table)
-    console.print("[dim]Usar /model <nombre> para cambiar[/]")
+    console.print("[dim]Usar /model <proveedor>/<nombre> para cambiar  (ej. openai/gpt-4o)[/]")
     console.print()
 
 

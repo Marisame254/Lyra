@@ -10,10 +10,10 @@ from typing import Any
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware, SummarizationMiddleware
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_ollama import ChatOllama
 from langchain_tavily import TavilySearch
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.store.postgres.aio import AsyncPostgresStore
@@ -25,6 +25,7 @@ from src.config import (
     MODEL_NAME,
     TAVILY_API_KEY,
 )
+from src.providers import ModelSpec, build_llm
 from src.constants import (
     ASK_USER_TOOL_NAME,
     AgentEventKind,
@@ -113,7 +114,8 @@ async def build_agent(
         checkpointer: Postgres-backed conversation checkpointer.
         store: Postgres-backed key-value store for memories.
         ask_user_tool: Optional tool that lets the agent ask the user questions.
-        model_name: Ollama model name to use for the LLM.
+        model_name: Model identifier in ``provider/name`` format, or a bare
+            Ollama model name for backward compatibility.
 
     Returns:
         Tuple of (agent, all_tools, mcp_tool_count, mcp_tool_names).
@@ -128,14 +130,16 @@ async def build_agent(
     mcp_tool_count = len(mcp_tools)
     mcp_tool_names = [getattr(t, "name", str(t)) for t in mcp_tools]
 
+    spec = ModelSpec.parse(model_name)
+
     logger.info(
         "Building agent: %d MCP tools, %d base tools, model=%s",
         mcp_tool_count,
         len(base_tools),
-        model_name,
+        spec,
     )
 
-    llm = ChatOllama(model=model_name)
+    llm = build_llm(spec)
 
     middleware: list = [
         SummarizationMiddleware(
@@ -210,6 +214,7 @@ async def _extract_and_store_memories(
     user_message: str,
     response_text: str,
     user_id: str,
+    model_name: str = MODEL_NAME,
 ) -> None:
     """Extract and persist memories from a completed turn (best-effort).
 
@@ -218,9 +223,10 @@ async def _extract_and_store_memories(
         user_message: The user's input that triggered the response.
         response_text: The agent's final text response.
         user_id: The user identifier for memory storage.
+        model_name: Model identifier (``provider/name`` or bare Ollama name).
     """
     try:
-        llm = ChatOllama(model=MODEL_NAME)
+        llm = build_llm(ModelSpec.parse(model_name))
         new_memories = await extract_memories(llm, user_message, response_text)
         if new_memories:
             await store_memories(store, user_id, new_memories)
@@ -321,6 +327,7 @@ async def stream_agent_turn(
     thread_id: str,
     user_id: str = "default",
     *,
+    model_name: str = MODEL_NAME,
     resume_command: Command | None = None,
 ) -> AsyncGenerator[AgentEvent, None]:
     """Stream agent events for a single conversation turn.
@@ -337,6 +344,7 @@ async def stream_agent_turn(
         user_message: The user's current input.
         thread_id: Conversation thread identifier.
         user_id: The user identifier.
+        model_name: Model identifier used for memory extraction.
         resume_command: Optional Command to resume from a HITL interrupt.
 
     Yields:
@@ -357,14 +365,16 @@ async def stream_agent_turn(
         yield event
 
     if response_text:
-        await _extract_and_store_memories(store, user_message, response_text, user_id)
+        await _extract_and_store_memories(
+            store, user_message, response_text, user_id, model_name=model_name
+        )
 
 
-async def generate_thread_name(llm: ChatOllama, first_message: str) -> str:
+async def generate_thread_name(llm: BaseChatModel, first_message: str) -> str:
     """Generate a short readable name for a thread using the LLM.
 
     Args:
-        llm: The ChatOllama instance.
+        llm: The chat model instance to use for name generation.
         first_message: The user's first message in the thread.
 
     Returns:

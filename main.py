@@ -13,10 +13,9 @@ from langgraph.types import Command
 from rich.live import Live
 from rich.markdown import Markdown
 
-from langchain_ollama import ChatOllama
-
 from src.agent import build_agent, create_agent_resources, generate_thread_name, get_system_prompt, get_thread_history, get_thread_messages, get_thread_name, save_thread_name, stream_agent_turn
 from src.config import MAX_CONTEXT_TOKENS, MODEL_NAME, load_mcp_servers, setup_logging, validate_config
+from src.providers import DEEPSEEK_MODELS, OPENAI_MODELS, ModelSpec, build_llm, list_ollama_models
 from src.constants import ASK_USER_TOOL_NAME, AgentEventKind, ChatCommand
 from src.context_tracker import build_context_breakdown
 from src.memory import clear_memories, delete_memory, list_memories, retrieve_memories, store_memories
@@ -104,15 +103,18 @@ async def _ask_user_prompt(question: str) -> str:
 
 
 async def handle_model_list_command(current_model: str) -> None:
-    """Display available Ollama models and highlight the active one."""
+    """Display available models for all providers, highlighting the active one."""
+    models_by_provider: dict[str, list[str]] = {}
+
     try:
-        from ollama import AsyncClient
-        client = AsyncClient()
-        response = await client.list()
-        models = [m.model for m in response.models]
-        show_models_table(models, current_model)
+        models_by_provider["ollama"] = await list_ollama_models()
     except Exception as e:
-        show_error(f"No se pudo conectar con Ollama: {e}")
+        show_error(f"No se pudo obtener modelos de Ollama: {e}")
+
+    models_by_provider["openai"] = list(OPENAI_MODELS)
+    models_by_provider["deepseek"] = list(DEEPSEEK_MODELS)
+
+    show_models_table(models_by_provider, current_model)
 
 
 async def chat_loop(
@@ -274,6 +276,7 @@ async def chat_loop(
                 needs_resume = False
                 async for event in stream_agent_turn(
                     agent, store, user_input, thread_id, user_id,
+                    model_name=current_model,
                     resume_command=resume_command,
                 ):
                     if event.kind == AgentEventKind.TOOL_START:
@@ -373,7 +376,7 @@ async def chat_loop(
                 if is_new_thread:
                     is_new_thread = False
                     try:
-                        llm = ChatOllama(model=current_model)
+                        llm = build_llm(ModelSpec.parse(current_model))
                         name = await generate_thread_name(llm, user_input)
                         await save_thread_name(store, thread_id, name)
                         show_info(f"Thread: {name}")

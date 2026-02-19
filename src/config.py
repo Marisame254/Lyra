@@ -14,6 +14,8 @@ load_dotenv()
 
 DATABASE_URL: str = os.environ.get("DATABASE_URL", "")
 TAVILY_API_KEY: str = os.environ.get("TAVILY_API_KEY", "")
+OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
+DEEPSEEK_API_KEY: str = os.environ.get("DEEPSEEK_API_KEY", "")
 
 LOG_LEVEL: str = os.environ.get("LOG_LEVEL", "WARNING")
 
