@@ -47,6 +47,46 @@ from src.memory import (
 
 logger = logging.getLogger(__name__)
 
+
+def _content_blocks_to_str(blocks: list) -> str:
+    """Extract text from a list of MCP content blocks."""
+    parts = [
+        block.get("text", str(block)) if isinstance(block, dict) else str(block)
+        for block in blocks
+    ]
+    return "\n".join(filter(None, parts)) or "(no output)"
+
+
+def _normalize_mcp_tool(tool: BaseTool) -> BaseTool:
+    """Wrap an MCP tool to normalize list output to string.
+
+    MCP tools return structured content blocks (list) per the MCP spec.
+    OpenAI's API requires ToolMessage.content to be a plain string.
+    Ollama is lenient; OpenAI/DeepSeek are strict — without this wrapper
+    subsequent LLM calls fail with BadRequestError 400.
+    """
+    from langchain_core.messages import ToolMessage as _ToolMessage
+
+    original_ainvoke = tool.ainvoke
+
+    async def _normalized(input_data: Any, config: Any = None, **kwargs: Any) -> Any:
+        result = await original_ainvoke(input_data, config=config, **kwargs)
+
+        # Case 1: tool returned a ToolMessage with list content
+        if isinstance(result, _ToolMessage) and isinstance(result.content, list):
+            return result.model_copy(
+                update={"content": _content_blocks_to_str(result.content)}
+            )
+        # Case 2: tool returned a plain list of content blocks
+        if isinstance(result, list):
+            return _content_blocks_to_str(result)
+
+        return result
+
+    object.__setattr__(tool, "ainvoke", _normalized)
+    return tool
+
+
 _SYSTEM_PROMPT_TEMPLATE = """You are a helpful AI assistant with access to various tools. \
 Use the tools available to you to help the user with their requests. \
 Be concise and direct in your responses. \
@@ -121,6 +161,7 @@ async def build_agent(
         Tuple of (agent, all_tools, mcp_tool_count, mcp_tool_names).
     """
     mcp_tools = await mcp_client.get_tools() if mcp_client else []
+    mcp_tools = [_normalize_mcp_tool(t) for t in mcp_tools]
     base_tools = build_tools()
 
     all_tools: list = mcp_tools + base_tools
