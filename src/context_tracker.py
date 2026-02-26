@@ -16,13 +16,13 @@ from src.constants import (
 
 try:
     import tiktoken
-    _encoding = tiktoken.get_encoding("cl100k_base")
+    _encoding = tiktoken.get_encoding("o200k_base")
 except Exception:
     _encoding = None
 
 
 def count_tokens(text: str) -> int:
-    """Count tokens using tiktoken (cl100k_base) with heuristic fallback.
+    """Count tokens using tiktoken (o200k_base) with heuristic fallback.
 
     Args:
         text: The input string to count tokens for.
@@ -87,7 +87,10 @@ def count_tool_definitions_tokens(tools: list) -> int:
         args_schema = getattr(tool, "args_schema", None)
         if args_schema is not None:
             try:
-                schema = args_schema.schema()
+                try:
+                    schema = args_schema.model_json_schema()
+                except AttributeError:
+                    schema = args_schema.schema()  # fallback Pydantic v1
                 parts.append(str(schema))
             except Exception:
                 pass
@@ -132,12 +135,14 @@ class ContextBreakdown:
 
     @property
     def total_tokens(self) -> int:
+        # summary_tokens are already included in messages_tokens; kept separate
+        # for display purposes only, so they are not added here to avoid
+        # double-counting.
         return (
             self.system_tokens
             + self.memory_tokens
             + self.messages_tokens
             + self.tools_tokens
-            + self.summary_tokens
         )
 
     @property
