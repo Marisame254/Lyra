@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage
 
 from src.constants import (
     CHARS_PER_TOKEN,
@@ -102,20 +102,25 @@ def count_tool_definitions_tokens(tools: list) -> int:
 
 
 def detect_summary_tokens(messages: list[BaseMessage]) -> int:
-    """Count tokens from SystemMessages that contain summarization output.
+    """Count tokens from summarization messages injected by SummarizationMiddleware.
 
-    The SummarizationMiddleware injects a SystemMessage with a summary
-    of earlier conversation. This function detects and counts those tokens.
+    SummarizationMiddleware injects a HumanMessage with
+    additional_kwargs={"lc_source": "summarization"} to replace older messages.
+    This function detects and counts tokens for those messages.
 
     Args:
         messages: List of messages from the checkpoint state.
 
     Returns:
-        Token count for summary SystemMessages (0 if none found).
+        Token count for summary messages (0 if none found).
     """
     total = 0
     for msg in messages:
-        if isinstance(msg, SystemMessage) and msg.content:
+        if (
+            getattr(msg, "type", None) == "human"
+            and getattr(msg, "additional_kwargs", {}).get("lc_source") == "summarization"
+            and msg.content
+        ):
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             total += count_tokens(content)
     return total

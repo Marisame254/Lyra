@@ -32,17 +32,26 @@ def setup_logging() -> None:
 MODEL_NAME: str = os.environ.get("MODEL_NAME", "kimi-k2.5:cloud")
 MAX_CONTEXT_TOKENS: int = int(os.environ.get("MAX_CONTEXT_TOKENS", "9000"))
 
-MCP_SERVERS_FILE: str = os.environ.get("MCP_SERVERS_FILE", "mcp_servers.json")
+_PROJECT_ROOT = Path(__file__).parent.parent
+
+MCP_SERVERS_FILE: str = os.environ.get("MCP_SERVERS_FILE", "")
 
 
 def load_mcp_servers() -> dict[str, dict]:
     """Load MCP server configuration from the JSON config file.
 
+    Resolves the config path relative to the project root (the directory
+    containing this package) so that ``lyra`` works correctly regardless
+    of the current working directory.
+
     Returns:
         Dictionary mapping server names to their connection parameters.
         Empty dict if the config file does not exist.
     """
-    path = Path(MCP_SERVERS_FILE)
+    raw = MCP_SERVERS_FILE or "mcp_servers.json"
+    path = Path(raw)
+    if not path.is_absolute():
+        path = _PROJECT_ROOT / path
     if not path.exists():
         return {}
     with open(path) as f:

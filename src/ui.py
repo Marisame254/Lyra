@@ -333,7 +333,18 @@ def show_conversation_history(messages: list) -> None:
             console.print(Markdown(content))
         elif msg_type == "human":
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
-            console.print(f"[bold blue]You>[/] {content}")
+            if getattr(msg, "additional_kwargs", {}).get("lc_source") == "summarization":
+                console.print()
+                console.print(
+                    Panel(
+                        Markdown(content),
+                        title="[yellow bold]Resumen de conversación anterior[/]",
+                        border_style="yellow",
+                        padding=(0, 2),
+                    )
+                )
+            else:
+                console.print(f"[bold blue]You>[/] {content}")
         elif msg_type == "tool":
             name = getattr(msg, "name", "tool")
             console.print(f"  [dim]⎿  {_format_tool_name(name)}[/]")
