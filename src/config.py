@@ -29,7 +29,7 @@ def setup_logging() -> None:
         stream=sys.stderr,
     )
 
-MODEL_NAME: str = os.environ.get("MODEL_NAME", "qwen3:14b")
+MODEL_NAME: str = os.environ.get("MODEL_NAME", "kimi-k2.5:cloud")
 MAX_CONTEXT_TOKENS: int = int(os.environ.get("MAX_CONTEXT_TOKENS", "9000"))
 
 MCP_SERVERS_FILE: str = os.environ.get("MCP_SERVERS_FILE", "mcp_servers.json")

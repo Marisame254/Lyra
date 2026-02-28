@@ -9,7 +9,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware, SummarizationMiddleware
+from langchain.agents.middleware import (
+    HumanInTheLoopMiddleware,
+    SummarizationMiddleware,
+    TodoListMiddleware,
+)
+from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
@@ -27,7 +32,6 @@ from src.config import (
 )
 from src.providers import ModelSpec, build_llm
 from src.constants import (
-    ASK_USER_TOOL_NAME,
     AgentEventKind,
     KEEP_MESSAGES,
     TAVILY_MAX_RESULTS,
@@ -92,7 +96,18 @@ Use the tools available to you to help the user with their requests. \
 Be concise and direct in your responses. \
 When you use a tool, explain what you found.
 
-Current date and time: {current_time}"""
+Current date and time: {current_time}
+
+## Task planning
+For complex multi-step requests, call `write_todos` before you begin executing steps \
+to create a visible task list. Update it as you complete each step. \
+Skip the todo list for simple single-step requests.
+
+## Subagents
+Delegate work to specialized subagents via the `task` tool:
+- `research` — web research requiring multiple searches or deep synthesis of online sources.
+- `general` — any task that benefits from running in an isolated context window.
+Keep your main context focused; delegate when it improves quality or reduces bloat."""
 
 
 def get_system_prompt() -> str:
@@ -182,7 +197,28 @@ async def build_agent(
 
     llm = build_llm(spec)
 
+    # Research subagent: Tavily only — no MCP tools, avoids nested HITL complexity
+    research_subagent = {
+        "name": "research",
+        "description": (
+            "A research specialist with web search access. Use for tasks that "
+            "require searching the web, synthesizing multiple sources, or deep "
+            "research on a topic."
+        ),
+        "system_prompt": (
+            "You are a research assistant. Search the web thoroughly and return "
+            "a structured, well-cited summary of your findings."
+        ),
+        "tools": base_tools,
+    }
+
     middleware: list = [
+        TodoListMiddleware(system_prompt=""),
+        SubAgentMiddleware(
+            default_model=llm,
+            default_tools=[],
+            subagents=[research_subagent],
+        ),
         SummarizationMiddleware(
             model=llm,
             trigger=("tokens", MAX_CONTEXT_TOKENS),
@@ -325,6 +361,8 @@ async def _stream_and_yield(
             )
 
         elif kind == "on_chat_model_stream":
+            if event.get("metadata", {}).get("langgraph_node") == "SummarizationMiddleware.before_model":
+                continue
             chunk = event.get("data", {}).get("chunk")
             if hasattr(chunk, "content") and chunk.content:
                 content = chunk.content
