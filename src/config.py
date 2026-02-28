@@ -49,6 +49,27 @@ def load_mcp_servers() -> dict[str, dict]:
         return json.load(f)
 
 
+def set_api_key(provider: str, key: str) -> None:
+    """Set a provider API key at runtime.
+
+    Updates both ``os.environ`` and the module-level variable so that any
+    subsequent call to ``build_llm()`` (which re-imports from this module)
+    picks up the new value without restarting the process.
+
+    Args:
+        provider: One of ``"openai"`` or ``"deepseek"``.
+        key: The API key string.
+    """
+    import src.config as _self  # noqa: PLC0415
+
+    if provider == "openai":
+        os.environ["OPENAI_API_KEY"] = key
+        _self.OPENAI_API_KEY = key
+    elif provider == "deepseek":
+        os.environ["DEEPSEEK_API_KEY"] = key
+        _self.DEEPSEEK_API_KEY = key
+
+
 def validate_config() -> list[str]:
     """Check that required environment variables are set.
 

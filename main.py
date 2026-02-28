@@ -12,11 +12,11 @@ from langgraph.types import Command
 from rich.live import Live
 from rich.markdown import Markdown
 
-from src.agent import build_agent, create_agent_resources, get_system_prompt, stream_agent_turn
+from src.agent import build_agent, create_agent_resources, stream_agent_turn
 from src.commands import ChatLoopResult, handle_context_command, handle_mcp_command, handle_memory_command, handle_model_command
-from src.config import MAX_CONTEXT_TOKENS, MODEL_NAME, TAVILY_API_KEY, load_mcp_servers, setup_logging, validate_config
+from src.config import MAX_CONTEXT_TOKENS, MODEL_NAME, TAVILY_API_KEY, load_mcp_servers, set_api_key, setup_logging, validate_config
 from src.constants import ASK_USER_TOOL_NAME, AgentEventKind, ChatCommand
-from src.providers import ModelSpec, build_llm
+from src.providers import PROVIDER_DEEPSEEK, PROVIDER_OPENAI, ModelSpec, build_llm
 from src.threads import generate_thread_name, get_thread_history, get_thread_messages, get_thread_name, save_thread_name
 from src.tools import create_ask_user_tool
 from src.ui import (
@@ -154,6 +154,50 @@ async def _run_agent_turn(
         live.stop()
 
     return response_text
+
+
+async def _ensure_provider_key(spec: ModelSpec) -> bool:
+    """Prompt the user for an API key if the provider requires one and it's missing.
+
+    Updates the config at runtime so the key is available for the current session.
+
+    Args:
+        spec: The parsed model spec with provider and name.
+
+    Returns:
+        True if we can proceed (key already set or user provided one),
+        False if the user cancelled.
+    """
+    from src.config import DEEPSEEK_API_KEY, OPENAI_API_KEY  # re-import for current values
+
+    required: dict[str, tuple[str, str]] = {
+        PROVIDER_OPENAI: ("OPENAI_API_KEY", OPENAI_API_KEY),
+        PROVIDER_DEEPSEEK: ("DEEPSEEK_API_KEY", DEEPSEEK_API_KEY),
+    }
+
+    if spec.provider not in required:
+        return True
+
+    env_var, current_key = required[spec.provider]
+    if current_key:
+        return True
+
+    show_info(f"El modelo [bold]{spec}[/] requiere [bold]{env_var}[/] para funcionar.")
+    loop = asyncio.get_running_loop()
+    try:
+        key = await loop.run_in_executor(
+            None, lambda: input(f"Introduce tu {env_var} (Enter para cancelar): ").strip()
+        )
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+    if not key:
+        show_error("API key vacía. Operación cancelada.")
+        return False
+
+    set_api_key(spec.provider, key)
+    show_info(f"{env_var} configurada para esta sesión.")
+    return True
 
 
 async def chat_loop(
@@ -358,6 +402,10 @@ async def main() -> None:
                 is_resumed = True
 
             elif result.command == ChatCommand.MODEL:
+                spec = ModelSpec.parse(result.model_name)
+                if not await _ensure_provider_key(spec):
+                    is_resumed = True
+                    continue
                 current_model = result.model_name
                 show_info(f"Cambiando modelo a: {current_model}...")
                 agent, all_tools, mcp_tool_count, _ = await build_agent(
