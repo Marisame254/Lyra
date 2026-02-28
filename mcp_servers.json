@@ -3,7 +3,7 @@
     "transport": "stdio",
     "command": "npx",
     "args": [
-      "-y", "@modelcontextprotocol/server-filesystem", "."
+      "-y", "@modelcontextprotocol/server-filesystem", ".workspace/"
     ]
   },
   "fastapi-mcp": {

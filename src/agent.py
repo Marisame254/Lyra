@@ -8,13 +8,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import (
     HumanInTheLoopMiddleware,
     SummarizationMiddleware,
     TodoListMiddleware,
 )
-from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -29,21 +29,21 @@ from src.config import (
     MODEL_NAME,
     TAVILY_API_KEY,
 )
-from src.providers import ModelSpec, build_llm
 from src.constants import (
-    AgentEventKind,
     KEEP_MESSAGES,
     TAVILY_MAX_RESULTS,
     TOOL_INPUT_DISPLAY_LIMIT,
     TOOL_OUTPUT_DISPLAY_LIMIT,
+    AgentEventKind,
 )
-from src.prompts import SYSTEM_PROMPT_TEMPLATE
 from src.memory import (
     extract_memories,
     format_memories_for_prompt,
     retrieve_memories,
     store_memories,
 )
+from src.prompts import SYSTEM_PROMPT_TEMPLATE
+from src.providers import ModelSpec, build_llm
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +51,7 @@ logger = logging.getLogger(__name__)
 def _content_blocks_to_str(blocks: list) -> str:
     """Extract text from a list of MCP content blocks."""
     parts = [
-        block.get("text", str(block)) if isinstance(block, dict) else str(block)
-        for block in blocks
+        block.get("text", str(block)) if isinstance(block, dict) else str(block) for block in blocks
     ]
     return "\n".join(filter(None, parts)) or "(no output)"
 
@@ -74,9 +73,7 @@ def _normalize_mcp_tool(tool: BaseTool) -> BaseTool:
 
         # Case 1: tool returned a ToolMessage with list content
         if isinstance(result, _ToolMessage) and isinstance(result.content, list):
-            return result.model_copy(
-                update={"content": _content_blocks_to_str(result.content)}
-            )
+            return result.model_copy(update={"content": _content_blocks_to_str(result.content)})
         # Case 2: tool returned a plain list of content blocks
         if isinstance(result, list):
             return _content_blocks_to_str(result)
@@ -159,6 +156,7 @@ async def build_agent(
         except Exception as e:
             logger.warning("Failed to get MCP tools: %s", e)
             from src.ui import show_error  # noqa: PLC0415
+
             show_error(f"No se pudieron cargar herramientas MCP: {e}. Continuando sin ellas.")
     mcp_tools = [_normalize_mcp_tool(t) for t in mcp_tools]
     base_tools = build_tools()
@@ -291,9 +289,7 @@ async def _extract_and_store_memories(
         new_memories = await extract_memories(llm, user_message, response_text)
         if new_memories:
             await store_memories(store, user_id, new_memories)
-            logger.info(
-                "Stored %d new memories for user=%s", len(new_memories), user_id
-            )
+            logger.info("Stored %d new memories for user=%s", len(new_memories), user_id)
     except Exception:
         logger.debug("Memory extraction failed", exc_info=True)
 
@@ -345,7 +341,10 @@ async def _stream_and_yield(
             )
 
         elif kind == "on_chat_model_stream":
-            if event.get("metadata", {}).get("langgraph_node") == "SummarizationMiddleware.before_model":
+            if (
+                event.get("metadata", {}).get("langgraph_node")
+                == "SummarizationMiddleware.before_model"
+            ):
                 continue
             chunk = event.get("data", {}).get("chunk")
             if hasattr(chunk, "content") and chunk.content:
@@ -431,5 +430,3 @@ async def stream_agent_turn(
         await _extract_and_store_memories(
             store, user_message, response_text, user_id, model_name=model_name
         )
-
-

@@ -73,16 +73,66 @@ def show_assistant_message(message: str) -> None:
     console.print()
 
 
+def _format_tool_name(tool_name: str) -> str:
+    """Make namespaced MCP tool names human-readable.
+
+    Converts ``namespace__tool_name`` → ``namespace › tool_name``.
+    """
+    if "__" in tool_name:
+        ns, _, name = tool_name.partition("__")
+        return f"{ns} › {name}"
+    return tool_name
+
+
+def _format_tool_summary(tool_name: str, output: str) -> str:
+    """Produce a compact one-line summary of tool output.
+
+    Picks a smart format based on the tool name (search, todo, read, write)
+    and falls back to the first meaningful line of the raw output.
+    """
+    if not output or output.strip() in ("", "(no output)"):
+        return "done"
+
+    name = tool_name.lower()
+    stripped = output.strip()
+    lines = [ln for ln in stripped.splitlines() if ln.strip()]
+    n = len(lines)
+
+    if any(k in name for k in ("search", "tavily", "find", "query")):
+        first = lines[0][:70] if lines else stripped[:70]
+        suffix = "…" if (lines and len(lines[0]) > 70) else ""
+        return f"{n} resultado(s) · {first}{suffix}" if n > 1 else f"{first}{suffix}"
+
+    if any(k in name for k in ("todo", "task", "write_todo")):
+        task_lines = [l for l in lines if l.lstrip().startswith(("[", "-", "•", "*", "○", "●"))]
+        count = len(task_lines) if task_lines else n
+        return f"{count} tarea(s)"
+
+    if any(k in name for k in ("read", "get", "fetch", "load", "open")):
+        return f"{n} línea(s)" if n > 1 else (stripped[:80] + "…" if len(stripped) > 80 else stripped)
+
+    if any(k in name for k in ("write", "create", "update", "save", "put", "delete", "remove")):
+        return "completado"
+
+    first = lines[0] if lines else stripped
+    return (first[:80] + "…") if len(first) > 80 else first
+
+
 def show_tool_start(tool_name: str, tool_input: str = "") -> None:
-    """Display a tool call starting."""
-    input_hint = f" ({tool_input})" if tool_input else ""
-    console.print(f"  [bold yellow]>[/] [yellow]{tool_name}[/][dim]{input_hint}[/]")
+    """Display a tool call in Claude Code style: ● ToolName(arg)"""
+    display = _format_tool_name(tool_name)
+    if tool_input:
+        arg = (tool_input[:60] + "…") if len(tool_input) > 60 else tool_input
+        console.print(f"[bold orange1]●[/] [bold]{display}[/][dim]({arg})[/]")
+    else:
+        console.print(f"[bold orange1]●[/] [bold]{display}[/]")
 
 
 def show_tool_end(tool_name: str, tool_output: str = "") -> None:
-    """Display a tool call result."""
-    output_hint = f" -> {tool_output}" if tool_output else " -> done"
-    console.print(f"  [bold green]>[/] [green]{tool_name}[/][dim]{output_hint}[/]")
+    """Display a tool result in Claude Code style: ⎿  summary"""
+    summary = _format_tool_summary(tool_name, tool_output)
+    console.print(f"  [dim]⎿  {summary}[/]")
+    console.print()
 
 
 def show_error(message: str) -> None:
@@ -227,7 +277,7 @@ def show_conversation_history(messages: list) -> None:
             if tool_calls:
                 for tc in tool_calls:
                     name = tc.get("name", "unknown") if isinstance(tc, dict) else getattr(tc, "name", "unknown")
-                    console.print(f"  [yellow]~ {name}[/]")
+                    console.print(f"[dim orange1]●[/] [dim]{_format_tool_name(name)}[/]")
                 if not content.strip():
                     continue
             elif not content.strip():
@@ -239,9 +289,8 @@ def show_conversation_history(messages: list) -> None:
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             console.print(f"[bold blue]You>[/] {content}")
         elif msg_type == "tool":
-            # Tool result messages — show tool name with result indicator
             name = getattr(msg, "name", "tool")
-            console.print(f"  [green]~ {name}[/]")
+            console.print(f"  [dim]⎿  {_format_tool_name(name)}[/]")
     console.print()
     console.rule(style="dim")
     console.print()

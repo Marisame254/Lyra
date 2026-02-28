@@ -68,7 +68,7 @@ async def _run_agent_turn(
     streamed_text = ""
     live: Live | None = None
     resume_command: Command | None = None
-    status = console.status("[bold green]Thinking...", spinner="dots")
+    status = console.status("[dim]Thinking...[/]", spinner="dots")
     status.start()
 
     while True:
@@ -92,16 +92,14 @@ async def _run_agent_turn(
                 if event.tool_name == ASK_USER_TOOL_NAME:
                     continue
                 show_tool_start(event.tool_name, event.tool_input)
-                status = console.status(
-                    f"[bold yellow]Running {event.tool_name}...", spinner="dots"
-                )
+                status.update(f"[dim]Running {event.tool_name}...[/]")
                 status.start()
 
             elif event.kind == AgentEventKind.TOOL_END:
                 status.stop()
                 if event.tool_name != ASK_USER_TOOL_NAME:
                     show_tool_end(event.tool_name, event.tool_output)
-                status = console.status("[bold green]Thinking...", spinner="dots")
+                status.update("[dim]Thinking...[/]")
                 status.start()
 
             elif event.kind == AgentEventKind.TOKEN:
