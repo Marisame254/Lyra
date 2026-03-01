@@ -15,15 +15,16 @@ from rich.markdown import Markdown
 from src.agent import build_agent, create_agent_resources, stream_agent_turn
 from src.commands import ChatLoopResult, handle_context_command, handle_mcp_command, handle_memory_command, handle_model_command
 from src.config import MAX_CONTEXT_TOKENS, MODEL_NAME, TAVILY_API_KEY, load_mcp_servers, set_api_key, setup_logging, validate_config
-from src.constants import ASK_USER_TOOL_NAME, AgentEventKind, ChatCommand
+from src.constants import ASK_USER_TOOL_NAME, AgentEventKind, ChatCommand, ThreadAction
 from src.providers import PROVIDER_DEEPSEEK, PROVIDER_OPENAI, ModelSpec, build_llm
-from src.threads import generate_thread_name, get_thread_history, get_thread_messages, get_thread_name, save_thread_name
+from src.threads import delete_thread, generate_thread_name, get_thread_history, get_thread_messages, get_thread_name, save_thread_name
 from src.tools import create_ask_user_tool
 from src.ui import (
+    ThreadManagementResult,
     console,
     create_prompt_session,
     prompt_reject_reason,
-    prompt_thread_selection,
+    prompt_thread_management,
     prompt_tool_decision,
     show_agent_question,
     show_conversation_history,
@@ -251,10 +252,20 @@ async def chat_loop(
             return ChatLoopResult(command=ChatCommand.NEW)
 
         if user_input.lower() == "/threads":
-            threads = await get_thread_history(checkpointer, store)
-            selected = await prompt_thread_selection(threads)
-            if selected:
-                return ChatLoopResult(command=ChatCommand.NEW, thread_id=selected)
+            managing = True
+            while managing:
+                threads = await get_thread_history(checkpointer, store)
+                mgmt = await prompt_thread_management(threads)
+                if mgmt.action == ThreadAction.RESUME:
+                    return ChatLoopResult(command=ChatCommand.NEW, thread_id=mgmt.thread_id)
+                elif mgmt.action == ThreadAction.DELETE:
+                    await delete_thread(checkpointer, store, mgmt.thread_id)
+                    show_info("Conversación eliminada.")
+                elif mgmt.action == ThreadAction.RENAME:
+                    await save_thread_name(store, mgmt.thread_id, mgmt.new_name)
+                    show_info(f"Conversación renombrada: {mgmt.new_name}")
+                else:  # NEW — stay in current thread
+                    managing = False
             continue
 
         if user_input.lower() == "/help":
@@ -370,10 +381,22 @@ async def main() -> None:
 
         threads = await get_thread_history(checkpointer, store)
         if threads:
-            selected = await prompt_thread_selection(threads)
-            if selected:
-                thread_id = selected
-                is_resumed = True
+            managing = True
+            while managing:
+                threads = await get_thread_history(checkpointer, store)
+                mgmt = await prompt_thread_management(threads)
+                if mgmt.action == ThreadAction.RESUME:
+                    thread_id = mgmt.thread_id
+                    is_resumed = True
+                    managing = False
+                elif mgmt.action == ThreadAction.DELETE:
+                    await delete_thread(checkpointer, store, mgmt.thread_id)
+                    show_info("Conversación eliminada.")
+                elif mgmt.action == ThreadAction.RENAME:
+                    await save_thread_name(store, mgmt.thread_id, mgmt.new_name)
+                    show_info(f"Conversación renombrada: {mgmt.new_name}")
+                else:  # NEW
+                    managing = False
 
         while True:
             result = await chat_loop(

@@ -24,6 +24,15 @@ class AgentEventKind(str, Enum):
     TOOL_APPROVAL_REQUIRED = "tool_approval_required"
 
 
+class ThreadAction(str, Enum):
+    """Actions returned by the thread management prompt."""
+
+    RESUME = "resume"
+    DELETE = "delete"
+    RENAME = "rename"
+    NEW = "new"
+
+
 # Token estimation
 CHARS_PER_TOKEN: int = 4
 MESSAGE_TOKEN_OVERHEAD: int = 4
@@ -41,7 +50,9 @@ THREAD_PREVIEW_LIMIT: int = 80
 THREAD_LIST_LIMIT: int = 1000
 
 # Agent summarization
-KEEP_MESSAGES: int = 20
+# NOTE: This must match the class name used by langchain's SummarizationMiddleware.
+# If the library renames the class, update this string accordingly.
+SUMMARIZATION_NODE_NAME: str = "SummarizationMiddleware.before_model"
 
 # Tool defaults
 TAVILY_MAX_RESULTS: int = 5

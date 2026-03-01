@@ -30,7 +30,7 @@ from src.config import (
     TAVILY_API_KEY,
 )
 from src.constants import (
-    KEEP_MESSAGES,
+    SUMMARIZATION_NODE_NAME,
     TAVILY_MAX_RESULTS,
     TOOL_INPUT_DISPLAY_LIMIT,
     TOOL_OUTPUT_DISPLAY_LIMIT,
@@ -204,7 +204,11 @@ async def build_agent(
         SummarizationMiddleware(
             model=llm,
             trigger=("tokens", MAX_CONTEXT_TOKENS),
-            keep=("messages", KEEP_MESSAGES),
+            # Token-based retention avoids retaining a few large tool-output messages
+            # that could exceed the trigger threshold on their own (which would cause
+            # summarization to fire again immediately on the next turn).
+            # 50% of the trigger leaves enough headroom after summarization.
+            keep=("tokens", MAX_CONTEXT_TOKENS // 2),
         ),
     ]
 
@@ -343,7 +347,7 @@ async def _stream_and_yield(
         elif kind == "on_chat_model_stream":
             if (
                 event.get("metadata", {}).get("langgraph_node")
-                == "SummarizationMiddleware.before_model"
+                == SUMMARIZATION_NODE_NAME
             ):
                 continue
             chunk = event.get("data", {}).get("chunk")
@@ -355,6 +359,11 @@ async def _stream_and_yield(
                     yield AgentEvent(kind=AgentEventKind.TOKEN, token=content)
 
         elif kind == "on_chat_model_end":
+            if (
+                event.get("metadata", {}).get("langgraph_node")
+                == SUMMARIZATION_NODE_NAME
+            ):
+                continue
             output = event.get("data", {}).get("output")
             if isinstance(output, AIMessage) and output.content:
                 if not streamed_tokens:

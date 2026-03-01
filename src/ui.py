@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
@@ -13,14 +14,14 @@ from rich.table import Table
 from rich.text import Text
 
 from src.config import MAX_CONTEXT_TOKENS, MODEL_NAME
-from src.constants import CHAT_HISTORY_FILE
+from src.constants import CHAT_HISTORY_FILE, ThreadAction
 from src.context_tracker import ContextBreakdown
 
 console = Console()
 
 COMMANDS = {
     "/new": "Start a new conversation thread",
-    "/threads": "List and resume previous conversations",
+    "/threads": "Listar, reanudar, eliminar o renombrar conversaciones",
     "/context": "Show token usage breakdown",
     "/memory": "Manage long-term memories",
     "/mcp [subcmd]": "Gestionar servidores MCP",
@@ -440,6 +441,95 @@ def show_models_table(models_by_provider: dict[str, list[str]], current_model: s
     console.print(table)
     console.print("[dim]Usar /model <proveedor>/<nombre> para cambiar  (ej. openai/gpt-4o)[/]")
     console.print()
+
+
+@dataclass
+class ThreadManagementResult:
+    """Result of the thread management prompt."""
+
+    action: ThreadAction
+    thread_id: str = ""
+    new_name: str = ""
+
+
+async def prompt_thread_management(threads: list[dict]) -> ThreadManagementResult:
+    """Show thread list and prompt for an action: resume, delete, rename, or new.
+
+    Prompt syntax accepted:
+        <number>              — resume thread
+        d <number>            — delete thread
+        r <number> <name>     — rename thread
+        Enter (empty)         — start/stay on new thread
+
+    Loops on invalid input until a valid command is entered.
+    """
+    show_threads(threads)
+    if not threads:
+        return ThreadManagementResult(action=ThreadAction.NEW)
+
+    console.print(
+        "[dim]  <número> Reanudar  ·  [bold]d <n>[/] Eliminar  ·  "
+        "[bold]r <n> <nombre>[/] Renombrar  ·  Enter Nueva conversación[/]"
+    )
+
+    loop = asyncio.get_running_loop()
+    while True:
+        try:
+            raw = await loop.run_in_executor(None, lambda: input(" >> ").strip())
+        except (EOFError, KeyboardInterrupt):
+            return ThreadManagementResult(action=ThreadAction.NEW)
+
+        if not raw:
+            return ThreadManagementResult(action=ThreadAction.NEW)
+
+        parts = raw.split(maxsplit=2)
+        cmd = parts[0].lower()
+
+        # Resume: bare number
+        if cmd.isdigit():
+            idx = int(cmd) - 1
+            if 0 <= idx < len(threads):
+                return ThreadManagementResult(
+                    action=ThreadAction.RESUME,
+                    thread_id=threads[idx]["thread_id"],
+                )
+            show_error(f"Número inválido. Ingresa entre 1 y {len(threads)}.")
+            continue
+
+        # Delete: d <n>
+        if cmd == "d":
+            if len(parts) < 2 or not parts[1].isdigit():
+                show_error("Uso: d <número>")
+                continue
+            idx = int(parts[1]) - 1
+            if not (0 <= idx < len(threads)):
+                show_error(f"Número inválido. Ingresa entre 1 y {len(threads)}.")
+                continue
+            return ThreadManagementResult(
+                action=ThreadAction.DELETE,
+                thread_id=threads[idx]["thread_id"],
+            )
+
+        # Rename: r <n> <name>
+        if cmd == "r":
+            if len(parts) < 3 or not parts[1].isdigit():
+                show_error("Uso: r <número> <nuevo nombre>")
+                continue
+            idx = int(parts[1]) - 1
+            if not (0 <= idx < len(threads)):
+                show_error(f"Número inválido. Ingresa entre 1 y {len(threads)}.")
+                continue
+            new_name = parts[2].strip()
+            if not new_name:
+                show_error("El nombre no puede estar vacío.")
+                continue
+            return ThreadManagementResult(
+                action=ThreadAction.RENAME,
+                thread_id=threads[idx]["thread_id"],
+                new_name=new_name,
+            )
+
+        show_error("Comando no reconocido. Usa un número, 'd <n>', 'r <n> <nombre>', o Enter.")
 
 
 async def prompt_thread_selection(threads: list[dict]) -> str | None:

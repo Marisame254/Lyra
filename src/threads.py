@@ -74,6 +74,28 @@ async def get_thread_name(
     return None
 
 
+async def delete_thread(
+    checkpointer: AsyncPostgresSaver,
+    store: AsyncPostgresStore,
+    thread_id: str,
+) -> None:
+    """Delete all data for a thread: checkpoints and stored name.
+
+    Args:
+        checkpointer: The Postgres checkpointer.
+        store: The Postgres store (for the thread name entry).
+        thread_id: The thread to delete.
+    """
+    try:
+        await checkpointer.adelete_thread(thread_id)
+    except Exception:
+        logger.debug("Failed to delete checkpoints for %s", thread_id, exc_info=True)
+    try:
+        await store.adelete(THREAD_NAMES_NAMESPACE, thread_id)
+    except Exception:
+        logger.debug("Failed to delete thread name for %s", thread_id, exc_info=True)
+
+
 async def get_thread_history(
     checkpointer: AsyncPostgresSaver,
     store: AsyncPostgresStore | None = None,
