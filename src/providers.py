@@ -11,11 +11,14 @@ are treated as Ollama models for backward compatibility with MODEL_NAME.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Provider identifiers
@@ -44,6 +47,22 @@ DEEPSEEK_MODELS: tuple[str, ...] = (
     "deepseek-reasoner",
 )
 
+# ---------------------------------------------------------------------------
+# Known context windows (tokens) for cloud providers
+# ---------------------------------------------------------------------------
+
+OPENAI_CONTEXT_WINDOWS: dict[str, int] = {
+    "gpt-4o": 128_000,
+    "gpt-4o-mini": 128_000,
+    "o1": 200_000,
+    "o1-mini": 128_000,
+    "o3-mini": 200_000,
+}
+
+DEEPSEEK_CONTEXT_WINDOWS: dict[str, int] = {
+    "deepseek-chat": 64_000,
+    "deepseek-reasoner": 64_000,
+}
 
 # ---------------------------------------------------------------------------
 # ModelSpec
@@ -149,3 +168,62 @@ async def list_ollama_models() -> list[str]:
 
     response = await AsyncClient().list()
     return [m.model for m in response.models]
+
+
+# ---------------------------------------------------------------------------
+# Context window detection
+# ---------------------------------------------------------------------------
+
+_context_window_cache: dict[str, int] = {}
+
+
+async def _get_ollama_context_length(model_name: str) -> int | None:
+    """Query Ollama for the model's context length."""
+    from ollama import AsyncClient
+
+    try:
+        info = await AsyncClient().show(model_name)
+        model_info = info.get("model_info", {})
+        for key, value in model_info.items():
+            if key.endswith("context_length") and isinstance(value, (int, float)):
+                return int(value)
+    except Exception:
+        logger.debug("Failed to query Ollama context length for %s", model_name, exc_info=True)
+    return None
+
+
+async def get_model_context_window(spec: ModelSpec, fallback: int) -> int:
+    """Detect the context window size for the given model.
+
+    Uses the Ollama API for local models and hardcoded mappings for
+    OpenAI/DeepSeek. Results are cached per model spec.
+
+    Args:
+        spec: Parsed model identifier.
+        fallback: Value to return if detection fails.
+
+    Returns:
+        Context window size in tokens.
+    """
+    cache_key = str(spec)
+    if cache_key in _context_window_cache:
+        return _context_window_cache[cache_key]
+
+    result: int | None = None
+
+    if spec.provider == PROVIDER_OLLAMA:
+        result = await _get_ollama_context_length(spec.name)
+    elif spec.provider == PROVIDER_OPENAI:
+        result = OPENAI_CONTEXT_WINDOWS.get(spec.name)
+    elif spec.provider == PROVIDER_DEEPSEEK:
+        result = DEEPSEEK_CONTEXT_WINDOWS.get(spec.name)
+
+    detected = result if result is not None else fallback
+    _context_window_cache[cache_key] = detected
+
+    if result is not None:
+        logger.info("Detected context window for %s: %d tokens", spec, detected)
+    else:
+        logger.info("Using fallback context window for %s: %d tokens", spec, detected)
+
+    return detected

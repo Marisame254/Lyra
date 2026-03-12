@@ -30,7 +30,13 @@ from src.config import (
     validate_config,
 )
 from src.constants import ASK_USER_TOOL_NAME, AgentEventKind, ChatCommand, ThreadAction
-from src.providers import PROVIDER_DEEPSEEK, PROVIDER_OPENAI, ModelSpec, build_llm
+from src.providers import (
+    PROVIDER_DEEPSEEK,
+    PROVIDER_OPENAI,
+    ModelSpec,
+    build_llm,
+    get_model_context_window,
+)
 from src.threads import (
     delete_thread,
     generate_thread_name,
@@ -232,6 +238,7 @@ async def chat_loop(
     current_model: str = MODEL_NAME,
     mcp_config: dict | None = None,
     disabled_servers: frozenset[str] = frozenset(),
+    max_context_tokens: int = MAX_CONTEXT_TOKENS,
 ) -> ChatLoopResult | None:
     """Run the interactive chat loop for a single thread.
 
@@ -298,7 +305,7 @@ async def chat_loop(
         if user_input.lower() == "/context":
             await handle_context_command(
                 agent, store, thread_id, user_id, all_tools, mcp_tool_count,
-                MAX_CONTEXT_TOKENS,
+                max_context_tokens,
             )
             continue
 
@@ -397,6 +404,11 @@ async def main() -> None:
             model_name=current_model,
         )
 
+        max_context_tokens = await get_model_context_window(
+            ModelSpec.parse(current_model), MAX_CONTEXT_TOKENS,
+        )
+        show_info(f"Context window: {max_context_tokens:,} tokens")
+
         thread_id = str(uuid.uuid4())
         is_resumed = False
 
@@ -424,6 +436,7 @@ async def main() -> None:
                 agent, store, checkpointer, all_tools, mcp_tool_count,
                 thread_id, resumed=is_resumed, current_model=current_model,
                 mcp_config=mcp_config_full, disabled_servers=disabled_servers,
+                max_context_tokens=max_context_tokens,
             )
 
             if result is None:
@@ -455,7 +468,10 @@ async def main() -> None:
                     ask_user_tool=ask_user_tool,
                     model_name=current_model,
                 )
-                show_info(f"Modelo activo: {current_model}")
+                max_context_tokens = await get_model_context_window(
+                    spec, MAX_CONTEXT_TOKENS,
+                )
+                show_info(f"Modelo activo: {current_model} (context: {max_context_tokens:,} tokens)")
                 is_resumed = True
 
             elif result.command == ChatCommand.NEW:

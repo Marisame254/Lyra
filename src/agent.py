@@ -26,6 +26,7 @@ from src.config import (
     TAVILY_API_KEY,
 )
 from src.constants import (
+    AGENT_RECURSION_LIMIT,
     SUMMARIZATION_NODE_NAME,
     TAVILY_MAX_RESULTS,
     TOOL_INPUT_DISPLAY_LIMIT,
@@ -386,7 +387,10 @@ async def stream_agent_turn(
     Yields:
         AgentEvent instances for tool starts, tool ends, and the final response.
     """
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": AGENT_RECURSION_LIMIT,
+    }
 
     if resume_command is not None:
         inputs = resume_command

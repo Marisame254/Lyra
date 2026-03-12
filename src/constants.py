@@ -54,6 +54,9 @@ THREAD_LIST_LIMIT: int = 1000
 # If the library renames the class, update this string accordingly.
 SUMMARIZATION_NODE_NAME: str = "SummarizationMiddleware.before_model"
 
+# Agent execution
+AGENT_RECURSION_LIMIT: int = 100
+
 # Tool defaults
 TAVILY_MAX_RESULTS: int = 5
 MEMORY_MAX_RESULTS: int = 5

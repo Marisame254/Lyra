@@ -191,7 +191,7 @@ def build_context_breakdown(
 
     return ContextBreakdown(
         system_tokens=count_tokens(system_prompt),
-        memory_tokens=count_tokens(memory_text),
+        memory_tokens=count_tokens(memory_text) if memory_text else 0,
         messages_tokens=count_message_tokens(messages),
         tools_tokens=count_tool_definitions_tokens(tools),
         mcp_tool_count=mcp_tool_count,
