@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -79,7 +78,7 @@ def _normalize_mcp_tool(tool: BaseTool) -> BaseTool:
 def get_system_prompt() -> str:
     """Build the base system prompt with the current date and time injected."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    return SYSTEM_PROMPT_TEMPLATE.format(current_time=now, cwd=os.getcwd())
+    return SYSTEM_PROMPT_TEMPLATE.format(current_time=now)
 
 
 async def create_agent_resources() -> tuple[AsyncPostgresSaver, AsyncPostgresStore]:

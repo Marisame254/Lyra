@@ -59,10 +59,6 @@ AGENT_RECURSION_LIMIT: int = 100
 
 # Tool defaults
 TAVILY_MAX_RESULTS: int = 5
-MEMORY_MAX_RESULTS: int = 5
-
-# Memory store
-MEMORY_NAMESPACE: tuple[str, ...] = ("memories",)
 
 # Agent long-term memory (CompositeBackend / StoreBackend)
 AGENT_MEMORY_FILE: str = "/memories/AGENT.md"

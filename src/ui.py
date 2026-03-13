@@ -31,11 +31,8 @@ COMMANDS = {
 }
 
 MEMORY_SUBCOMMANDS = {
-    "/memory": "List all stored memories",
-    "/memory add <text>": "Save a custom memory",
-    "/memory search <query>": "Search memories by keyword",
-    "/memory delete <n>": "Delete memory #n from the list",
-    "/memory clear": "Delete all memories (asks confirmation)",
+    "/memory": "Mostrar memorias del agente (AGENT.md)",
+    "/memory clear": "Borrar todas las memorias (pide confirmación)",
 }
 
 MCP_SUBCOMMANDS = {
@@ -85,6 +82,31 @@ def _format_tool_name(tool_name: str) -> str:
     return tool_name
 
 
+def _format_todo_summary(output: str) -> str:
+    """Parse write_todos output and format as a checklist.
+
+    Expected output format:
+        ``Updated todo list to [{'content': '...', 'status': 'pending'}, ...]``
+    """
+    import ast
+
+    status_marks = {"completed": "x", "in_progress": "-", "pending": " "}
+    bracket_pos = output.find("[")
+    if bracket_pos == -1:
+        return output[:80] if len(output) <= 80 else output[:77] + "…"
+    try:
+        todos = ast.literal_eval(output[bracket_pos:])
+    except (ValueError, SyntaxError):
+        return f"{output.count('content')} tarea(s)"
+    if not isinstance(todos, list) or not todos:
+        return "0 tarea(s)"
+    formatted = []
+    for t in todos:
+        mark = status_marks.get(t.get("status", ""), " ")
+        formatted.append(f"[{mark}] {t.get('content', '?')}")
+    return "\n".join(formatted)
+
+
 def _format_tool_summary(tool_name: str, output: str) -> str:
     """Produce a compact one-line summary of tool output.
 
@@ -104,17 +126,14 @@ def _format_tool_summary(tool_name: str, output: str) -> str:
         suffix = "…" if (lines and len(lines[0]) > 70) else ""
         return f"{n} resultado(s) · {first}{suffix}" if n > 1 else f"{first}{suffix}"
 
-    if any(k in name for k in ("todo", "task", "write_todo")):
-        task_lines = [line for line in lines if line.lstrip().startswith(("[", "-", "•", "*", "○", "●"))]
-        if not task_lines:
-            return f"{n} tarea(s)"
-        return "\n".join(line.strip() for line in task_lines)
-
-    if any(k in name for k in ("read", "get", "fetch", "load", "open")):
-        return f"{n} línea(s)" if n > 1 else (stripped[:80] + "…" if len(stripped) > 80 else stripped)
+    if "todo" in name:
+        return _format_todo_summary(stripped)
 
     if any(k in name for k in ("write", "create", "update", "save", "put", "delete", "remove")):
         return "completado"
+
+    if any(k in name for k in ("read", "get", "fetch", "load", "open")):
+        return f"{n} línea(s)" if n > 1 else (stripped[:80] + "…" if len(stripped) > 80 else stripped)
 
     first = lines[0] if lines else stripped
     return (first[:80] + "…") if len(first) > 80 else first
@@ -194,18 +213,6 @@ def show_help() -> None:
     console.print(Panel(content, title="Help", border_style="bright_blue", padding=(1, 2)))
     console.print()
 
-
-def show_memories_table(memories: list[dict]) -> None:
-    """Display a table of stored memories."""
-    table = Table(title="Memories", border_style="bright_blue")
-    table.add_column("#", style="bold", width=4)
-    table.add_column("Memory", style="white")
-
-    for i, mem in enumerate(memories, 1):
-        table.add_row(str(i), mem["text"])
-
-    console.print(table)
-    console.print()
 
 
 def show_mcp_table(mcp_config: dict, disabled_servers: frozenset[str]) -> None:

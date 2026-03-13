@@ -13,23 +13,15 @@ from dataclasses import dataclass, field
 
 from src.constants import ChatCommand
 from src.context_tracker import build_context_breakdown
-from src.memory import (
-    clear_memories,
-    delete_memory,
-    list_memories,
-    retrieve_memories,
-    store_memories,
-)
+from src.memory import clear_agent_memory, read_agent_memory
 from src.providers import DEEPSEEK_MODELS, OPENAI_MODELS, list_ollama_models
 from src.ui import (
     MCP_SUBCOMMANDS,
     console,
     show_context_breakdown,
     show_error,
-    show_help,
     show_info,
     show_mcp_table,
-    show_memories_table,
     show_models_table,
 )
 
@@ -74,13 +66,13 @@ async def handle_context_command(
 ) -> None:
     """Display token usage breakdown for the current conversation."""
     from src.agent import get_system_prompt
-    from src.memory import retrieve_memories
 
     config = {"configurable": {"thread_id": thread_id}}
     state = await agent.aget_state(config)
     checkpoint_messages = state.values.get("messages", []) if state.values else []
 
-    memories = await retrieve_memories(store, user_id, "")
+    content = await read_agent_memory(store)
+    memories = content.splitlines() if content else []
 
     breakdown = build_context_breakdown(
         system_prompt=get_system_prompt(),
@@ -104,75 +96,39 @@ async def handle_memory_command(
     user_id: str,
 ) -> None:
     """Handle the /memory command and its subcommands."""
+    from rich.markdown import Markdown
+
     subcmd = parts[1].lower() if len(parts) > 1 else ""
 
-    if subcmd == "help":
-        show_help()
-
-    elif subcmd == "search":
-        query = parts[2] if len(parts) > 2 else ""
-        if not query:
-            show_error("Usage: /memory search <query>")
-            return
-        results = await retrieve_memories(store, user_id, query, max_results=20)
-        if not results:
-            show_info("No memories found for that query.")
+    if subcmd in ("", "show"):
+        content = await read_agent_memory(store)
+        if not content:
+            show_info("No hay memorias guardadas aún.")
         else:
-            show_memories_table([{"key": "", "text": t} for t in results])
-
-    elif subcmd == "delete":
-        idx_str = parts[2] if len(parts) > 2 else ""
-        if not idx_str:
-            show_error("Usage: /memory delete <number>")
-            return
-        try:
-            idx = int(idx_str)
-        except ValueError:
-            show_error("Please provide a valid memory number.")
-            return
-        mems = await list_memories(store, user_id)
-        if not mems:
-            show_info("No memories stored yet.")
-            return
-        if idx < 1 or idx > len(mems):
-            show_error(f"Invalid index. Must be between 1 and {len(mems)}.")
-            return
-        target = mems[idx - 1]
-        await delete_memory(store, user_id, target["key"])
-        show_info(f"Deleted memory #{idx}: {target['text']}")
-
-    elif subcmd == "add":
-        text = parts[2] if len(parts) > 2 else ""
-        if not text:
-            show_error("Usage: /memory add <text>")
-            return
-        await store_memories(store, user_id, [text])
-        show_info(f"Memory saved: {text}")
+            console.print()
+            console.print(Markdown(content))
+            console.print()
 
     elif subcmd == "clear":
         try:
             confirm = await asyncio.get_running_loop().run_in_executor(
                 None,
-                lambda: input("Type 'yes' to confirm clearing all memories: "),
+                lambda: input("Escribe 'si' para confirmar el borrado de memorias: "),
             )
         except (EOFError, KeyboardInterrupt):
             return
-        if confirm.strip().lower() != "yes":
-            show_info("Cancelled.")
+        if confirm.strip().lower() not in ("si", "sí", "yes"):
+            show_info("Cancelado.")
             return
-        count = await clear_memories(store, user_id)
-        show_info(f"Cleared {count} memories.")
-
-    elif subcmd == "":
-        mems = await list_memories(store, user_id)
-        if not mems:
-            show_info("No memories stored yet.")
+        ok = await clear_agent_memory(store)
+        if ok:
+            show_info("Memorias borradas.")
         else:
-            show_memories_table(mems)
+            show_error("No se pudieron borrar las memorias.")
 
     else:
-        show_error(f"Unknown subcommand: {subcmd}")
-        show_help()
+        show_error(f"Subcomando desconocido: {subcmd}")
+        show_info("Uso: /memory [show|clear]")
 
 
 # ---------------------------------------------------------------------------
