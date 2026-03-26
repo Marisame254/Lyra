@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.document import Document
 from prompt_toolkit.history import FileHistory
 from rich.console import Console
 from rich.markdown import Markdown
@@ -31,7 +34,9 @@ COMMANDS = {
 }
 
 MEMORY_SUBCOMMANDS = {
-    "/memory": "Mostrar memorias del agente (AGENT.md)",
+    "/memory": "Mostrar índice de memorias (MEMORY.md)",
+    "/memory list": "Listar archivos de memoria",
+    "/memory read <archivo>": "Leer un archivo de memoria específico",
     "/memory clear": "Borrar todas las memorias (pide confirmación)",
 }
 
@@ -43,9 +48,49 @@ MCP_SUBCOMMANDS = {
 }
 
 
+# Command completions: (command, description) for the autocomplete menu.
+_COMMAND_COMPLETIONS: list[tuple[str, str]] = [
+    ("/new", "Iniciar nueva conversación"),
+    ("/threads", "Gestionar conversaciones"),
+    ("/context", "Ver uso de tokens"),
+    ("/memory", "Mostrar índice de memorias"),
+    ("/memory list", "Listar archivos de memoria"),
+    ("/memory read", "Leer un archivo de memoria"),
+    ("/memory clear", "Borrar todas las memorias"),
+    ("/mcp", "Listar servidores MCP"),
+    ("/mcp enable", "Activar servidor MCP"),
+    ("/mcp disable", "Deshabilitar servidor MCP"),
+    ("/mcp reload", "Recargar servidores MCP"),
+    ("/model", "Ver o cambiar modelo"),
+    ("/help", "Mostrar ayuda"),
+    ("/exit", "Salir de la aplicación"),
+]
+
+
+class _SlashCommandCompleter(Completer):
+    """Autocomplete slash commands only when input starts with '/'."""
+
+    def get_completions(
+        self, document: Document, complete_event: object
+    ) -> Iterable[Completion]:
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+        for cmd, desc in _COMMAND_COMPLETIONS:
+            if cmd.startswith(text) and cmd != text:
+                yield Completion(
+                    cmd,
+                    start_position=-len(text),
+                    display_meta=desc,
+                )
+
+
 def create_prompt_session() -> PromptSession:
-    """Create a prompt_toolkit session with file history."""
-    return PromptSession(history=FileHistory(CHAT_HISTORY_FILE))
+    """Create a prompt_toolkit session with file history and command completion."""
+    return PromptSession(
+        history=FileHistory(CHAT_HISTORY_FILE),
+        completer=_SlashCommandCompleter(),
+    )
 
 
 def show_welcome() -> None:

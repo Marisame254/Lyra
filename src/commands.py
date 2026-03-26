@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from src.constants import ChatCommand
 from src.context_tracker import build_context_breakdown
-from src.memory import clear_agent_memory, read_agent_memory
+from src.memory import clear_all_memories, list_memory_files, read_memory_file, read_memory_index
 from src.providers import DEEPSEEK_MODELS, OPENAI_MODELS, list_ollama_models
 from src.ui import (
     MCP_SUBCOMMANDS,
@@ -57,7 +57,6 @@ class ChatLoopResult:
 
 async def handle_context_command(
     agent,
-    store,
     thread_id: str,
     user_id: str,
     all_tools: list,
@@ -71,7 +70,7 @@ async def handle_context_command(
     state = await agent.aget_state(config)
     checkpoint_messages = state.values.get("messages", []) if state.values else []
 
-    content = await read_agent_memory(store)
+    content = read_memory_index()
     memories = content.splitlines() if content else []
 
     breakdown = build_context_breakdown(
@@ -92,7 +91,6 @@ async def handle_context_command(
 
 async def handle_memory_command(
     parts: list[str],
-    store,
     user_id: str,
 ) -> None:
     """Handle the /memory command and its subcommands."""
@@ -101,9 +99,32 @@ async def handle_memory_command(
     subcmd = parts[1].lower() if len(parts) > 1 else ""
 
     if subcmd in ("", "show"):
-        content = await read_agent_memory(store)
+        content = read_memory_index()
         if not content:
             show_info("No hay memorias guardadas aún.")
+        else:
+            console.print()
+            console.print(Markdown(content))
+            console.print()
+
+    elif subcmd == "list":
+        files = list_memory_files()
+        if not files:
+            show_info("No hay archivos de memoria.")
+        else:
+            show_info(f"{len(files)} archivo(s) de memoria:")
+            for f in files:
+                console.print(f"  {f}")
+            console.print()
+
+    elif subcmd == "read":
+        filename = parts[2].strip() if len(parts) > 2 else ""
+        if not filename:
+            show_error("Uso: /memory read <archivo>")
+            return
+        content = read_memory_file(filename)
+        if not content:
+            show_error(f"No se encontró el archivo '{filename}'.")
         else:
             console.print()
             console.print(Markdown(content))
@@ -120,15 +141,15 @@ async def handle_memory_command(
         if confirm.strip().lower() not in ("si", "sí", "yes"):
             show_info("Cancelado.")
             return
-        ok = await clear_agent_memory(store)
+        ok = clear_all_memories()
         if ok:
-            show_info("Memorias borradas.")
+            show_info("Todas las memorias han sido borradas.")
         else:
             show_error("No se pudieron borrar las memorias.")
 
     else:
         show_error(f"Subcomando desconocido: {subcmd}")
-        show_info("Uso: /memory [show|clear]")
+        show_info("Uso: /memory [show|list|read <archivo>|clear]")
 
 
 # ---------------------------------------------------------------------------

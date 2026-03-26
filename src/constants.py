@@ -62,8 +62,10 @@ AGENT_RECURSION_LIMIT: int = 100
 # Tool defaults
 TAVILY_MAX_RESULTS: int = 5
 
-# Agent long-term memory (CompositeBackend / StoreBackend)
-AGENT_MEMORY_FILE: str = "/memories/AGENT.md"
+# Agent long-term memory (filesystem-based, ~/.lyra/memory/)
+MEMORY_DIR_NAME: str = ".lyra"
+MEMORY_SUBDIR: str = "memory"
+MEMORY_INDEX_FILENAME: str = "MEMORY.md"
 
 # Thread names
 THREAD_NAMES_NAMESPACE: tuple[str, ...] = ("thread_names",)

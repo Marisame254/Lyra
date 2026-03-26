@@ -351,14 +351,14 @@ async def chat_loop(
         # --- Delegated command handlers ---
         if user_input.lower() == "/context":
             await handle_context_command(
-                agent, store, thread_id, user_id, all_tools, mcp_tool_count,
+                agent, thread_id, user_id, all_tools, mcp_tool_count,
                 max_context_tokens,
             )
             continue
 
         if user_input.lower().startswith("/memory"):
             parts = user_input.split(maxsplit=2)
-            await handle_memory_command(parts, store, user_id)
+            await handle_memory_command(parts, user_id)
             continue
 
         if user_input.lower().startswith("/mcp"):

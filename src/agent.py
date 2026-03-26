@@ -5,11 +5,11 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from deepagents import create_deep_agent
-from deepagents.backends import CompositeBackend, LocalShellBackend, StoreBackend
+from deepagents.backends import LocalShellBackend
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -24,7 +24,6 @@ from src.config import (
     TAVILY_API_KEY,
 )
 from src.constants import (
-    AGENT_MEMORY_FILE,
     AGENT_RECURSION_LIMIT,
     SUMMARIZATION_NODE_NAME,
     TAVILY_MAX_RESULTS,
@@ -32,6 +31,7 @@ from src.constants import (
     TOOL_OUTPUT_DISPLAY_LIMIT,
     AgentEventKind,
 )
+from src.memory import get_memory_dir, get_memory_index_path
 from src.prompts import SYSTEM_PROMPT_TEMPLATE
 from src.providers import ModelSpec, build_llm
 
@@ -85,9 +85,9 @@ def get_system_prompt() -> str:
     """Build the base system prompt with the current date/time and working directory."""
     # import os
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    # cwd = os.getcwd()
-    return SYSTEM_PROMPT_TEMPLATE.format(current_time=now)
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    memory_dir = str(get_memory_dir()).replace("\\", "/")
+    return SYSTEM_PROMPT_TEMPLATE.format(current_time=now, memory_dir=memory_dir)
 
 
 async def create_agent_resources() -> tuple[AsyncPostgresSaver, AsyncPostgresStore]:
@@ -170,13 +170,10 @@ async def build_agent(
         system_prompt=get_system_prompt(),
         tools=all_tools,
         interrupt_on=hitl_tools,
-        backend=lambda rt: CompositeBackend(
-            default=LocalShellBackend(root_dir=".", inherit_env=True),
-            routes={"/memories/": StoreBackend(rt)},
-        ),
+        backend=LocalShellBackend(root_dir=".", inherit_env=True),
         checkpointer=checkpointer,
         store=store,
-        memory=[AGENT_MEMORY_FILE],
+        memory=[str(get_memory_index_path())],
         name="Lyra Code Assistant",
     )
 
@@ -364,10 +361,9 @@ async def stream_agent_turn(
 ) -> AsyncGenerator[AgentEvent]:
     """Stream agent events for a single conversation turn.
 
-    Memory is managed by the agent itself via the CompositeBackend:
-    ``/memories/`` paths are routed to a persistent StoreBackend, and
-    the ``memory`` parameter on ``create_deep_agent`` auto-loads
-    ``AGENT.md`` into the system prompt each turn.
+    Memory is managed by the agent itself via the filesystem at
+    ``~/.lyra/memory/``.  The ``memory`` parameter on ``create_deep_agent``
+    auto-loads ``MEMORY.md`` into the system prompt each turn.
 
     When *resume_command* is provided the agent is resumed from a HITL
     interrupt instead of starting a new turn.
